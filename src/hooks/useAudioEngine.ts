@@ -1,6 +1,6 @@
 import { useRef, useCallback, useEffect, useState } from "react";
 import { AudioEngine } from "../audio/engine";
-import type { SynthParams } from "../types/audio";
+import type { SceneState } from "../types/audio";
 
 export function useAudioEngine() {
   const engineRef = useRef<AudioEngine | null>(null);
@@ -22,29 +22,30 @@ export function useAudioEngine() {
   }, []);
 
   const play = useCallback(
-    async (params: SynthParams) => {
+    async (scene: SceneState) => {
       if (!isReady) await init();
-      const engine = engineRef.current;
-      if (!engine) return;
-      engine.updateParams(params);
-      engine.triggerAttack(params.frequency);
+      engineRef.current?.play(scene);
       setIsPlaying(true);
     },
     [isReady, init],
   );
 
   const stop = useCallback(() => {
-    engineRef.current?.triggerRelease();
+    engineRef.current?.stop();
     setIsPlaying(false);
   }, []);
 
-  const updateParams = useCallback((params: SynthParams) => {
-    engineRef.current?.updateParams(params);
-  }, []);
+  const updateScene = useCallback(
+    async (scene: SceneState) => {
+      if (!isReady) return;
+      engineRef.current?.applyScene(scene);
+    },
+    [isReady],
+  );
 
   const getWaveformData = useCallback((): Float32Array => {
     return engineRef.current?.getWaveformData() ?? new Float32Array(256);
   }, []);
 
-  return { isPlaying, isReady, init, play, stop, updateParams, getWaveformData };
+  return { isPlaying, isReady, init, play, stop, updateScene, getWaveformData };
 }

@@ -1,75 +1,38 @@
-export type OscillatorType = "sine" | "square" | "sawtooth" | "triangle";
+import type { ScaleName, RootNote } from "../audio/scales";
 
-export interface SynthParams {
-  waveform: OscillatorType;
-  frequency: number;
-  volume: number; // in dB, -60 to 0
-  attack: number;
-  release: number;
+export type LayerKind = "pad" | "lead" | "melody" | "bass" | "percussion" | "arp";
+
+export interface LayerState {
+  kind: LayerKind;
+  active: boolean;
+  volume: number; // 0-1 normalized
+  density: number; // 0-1, how busy/frequent the layer is
+  color: string; // UI accent color
 }
 
-export interface Preset {
-  name: string;
-  params: SynthParams;
+export interface SceneState {
+  root: RootNote;
+  scale: ScaleName;
+  bpm: number;
+  energy: number; // 0-1 global energy/intensity
+  layers: Record<LayerKind, LayerState>;
+  isPlaying: boolean;
 }
 
-export const DEFAULT_SYNTH_PARAMS: SynthParams = {
-  waveform: "sine",
-  frequency: 440,
-  volume: -12,
-  attack: 0.1,
-  release: 0.5,
+export const LAYER_DEFAULTS: Record<LayerKind, LayerState> = {
+  pad: { kind: "pad", active: true, volume: 0.6, density: 0.3, color: "#6c63ff" },
+  bass: { kind: "bass", active: true, volume: 0.5, density: 0.4, color: "#ff6b6b" },
+  melody: { kind: "melody", active: false, volume: 0.4, density: 0.5, color: "#ffd93d" },
+  lead: { kind: "lead", active: false, volume: 0.35, density: 0.3, color: "#6bffb8" },
+  arp: { kind: "arp", active: false, volume: 0.3, density: 0.5, color: "#63d5ff" },
+  percussion: { kind: "percussion", active: false, volume: 0.45, density: 0.5, color: "#ff63c5" },
 };
 
-export const PRESETS: Preset[] = [
-  {
-    name: "Pure Tone",
-    params: {
-      waveform: "sine",
-      frequency: 440,
-      volume: -12,
-      attack: 0.05,
-      release: 0.3,
-    },
-  },
-  {
-    name: "Warm Pad",
-    params: {
-      waveform: "triangle",
-      frequency: 220,
-      volume: -18,
-      attack: 0.8,
-      release: 1.5,
-    },
-  },
-  {
-    name: "Buzz Lead",
-    params: {
-      waveform: "sawtooth",
-      frequency: 330,
-      volume: -15,
-      attack: 0.02,
-      release: 0.4,
-    },
-  },
-  {
-    name: "Square Blip",
-    params: {
-      waveform: "square",
-      frequency: 523,
-      volume: -20,
-      attack: 0.01,
-      release: 0.15,
-    },
-  },
-  {
-    name: "Deep Drone",
-    params: {
-      waveform: "sawtooth",
-      frequency: 55,
-      volume: -10,
-      attack: 1.2,
-      release: 2.0,
-    },
-  },
-];
+export const DEFAULT_SCENE: SceneState = {
+  root: "C",
+  scale: "minorPentatonic",
+  bpm: 85,
+  energy: 0.5,
+  layers: { ...LAYER_DEFAULTS },
+  isPlaying: false,
+};

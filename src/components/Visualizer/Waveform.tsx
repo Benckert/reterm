@@ -4,11 +4,13 @@ import styles from "./Waveform.module.css";
 interface WaveformProps {
   getData: () => Float32Array;
   isPlaying: boolean;
+  accentColor?: string;
 }
 
-export function Waveform({ getData, isPlaying }: WaveformProps) {
+export function Waveform({ getData, isPlaying, accentColor = "#6c63ff" }: WaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animFrameRef = useRef<number>(0);
+  const timeRef = useRef(0);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -25,35 +27,44 @@ export function Waveform({ getData, isPlaying }: WaveformProps) {
 
     const width = rect.width;
     const height = rect.height;
+    const mid = height / 2;
 
-    // Background
-    ctx.fillStyle = "#0a0a1a";
+    timeRef.current += 0.02;
+
+    // Background with subtle gradient
+    const bg = ctx.createLinearGradient(0, 0, 0, height);
+    bg.addColorStop(0, "#08081a");
+    bg.addColorStop(1, "#0a0a12");
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, width, height);
 
-    // Grid lines
-    ctx.strokeStyle = "#1a1a2e";
-    ctx.lineWidth = 1;
-    for (let y = 0; y < height; y += height / 4) {
+    const data = getData();
+
+    // Ambient idle wave when not playing
+    if (!isPlaying) {
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
+      ctx.strokeStyle = "#1a1a3a";
+      ctx.lineWidth = 1;
+      for (let x = 0; x < width; x++) {
+        const y = mid + Math.sin(x * 0.02 + timeRef.current) * 8;
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
       ctx.stroke();
     }
 
-    // Waveform
-    const data = getData();
+    // Main waveform
     ctx.beginPath();
-    ctx.strokeStyle = "#6c63ff";
+    ctx.strokeStyle = accentColor;
     ctx.lineWidth = 2;
-    ctx.shadowColor = "#6c63ff";
-    ctx.shadowBlur = 8;
+    ctx.shadowColor = accentColor;
+    ctx.shadowBlur = isPlaying ? 12 : 4;
 
     const sliceWidth = width / data.length;
     let x = 0;
 
     for (let i = 0; i < data.length; i++) {
-      const v = (data[i] + 1) / 2;
-      const y = v * height;
+      const v = data[i];
+      const y = mid + v * mid * 0.9;
       if (i === 0) {
         ctx.moveTo(x, y);
       } else {
@@ -61,17 +72,36 @@ export function Waveform({ getData, isPlaying }: WaveformProps) {
       }
       x += sliceWidth;
     }
-
     ctx.stroke();
+
+    // Mirror reflection (faint)
+    ctx.beginPath();
+    ctx.strokeStyle = accentColor;
+    ctx.globalAlpha = 0.15;
+    ctx.lineWidth = 1;
+    ctx.shadowBlur = 0;
+    x = 0;
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i];
+      const y = mid - v * mid * 0.4;
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+      x += sliceWidth;
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
     ctx.shadowBlur = 0;
 
     animFrameRef.current = requestAnimationFrame(draw);
-  }, [getData]);
+  }, [getData, isPlaying, accentColor]);
 
   useEffect(() => {
     animFrameRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(animFrameRef.current);
-  }, [draw, isPlaying]);
+  }, [draw]);
 
   return (
     <div className={styles.container}>
