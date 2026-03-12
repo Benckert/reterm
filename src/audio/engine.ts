@@ -122,6 +122,11 @@ export class AudioEngine {
       layer.loop = null;
     }
 
+    // Release lingering notes so new scale/root is heard immediately
+    if ("releaseAll" in layer.synth) {
+      (layer.synth as Tone.PolySynth).releaseAll();
+    }
+
     layer.gain.gain.rampTo(layerState.volume * scene.energy, 0.05);
 
     const { root, scale } = scene;
@@ -130,97 +135,198 @@ export class AudioEngine {
 
     switch (kind) {
       case "pad": {
-        // Pads: long sustained chords, change every few bars
-        const interval = `${Math.max(2, Math.round(8 - density * 6))}m`;
-        layer.loop = new Tone.Loop((time) => {
+        // Pads: sustained chords with voicing variation
+        const bars = Math.max(2, Math.round(8 - density * 6));
+        const interval = `${bars}m`;
+        const padTick = (time: number) => {
           const synth = layer.synth as Tone.PolySynth;
           synth.releaseAll(time);
           const notes = getScaleNotes(root, scale, 3, 4);
-          // Pick 2-3 note chord from root, 3rd, 5th
-          const chord = [notes[0], notes[2], notes[4]].filter(Boolean);
+          // Vary chord voicing: triads, 7ths, sus, inversions
+          const voicing = Math.random();
+          let chord: ScaleNote[];
+          if (voicing < 0.4) {
+            // Basic triad (root, 3rd, 5th)
+            chord = [notes[0], notes[2], notes[4]].filter(Boolean);
+          } else if (voicing < 0.65) {
+            // 7th chord (root, 3rd, 5th, 7th)
+            chord = [notes[0], notes[2], notes[4], notes[6]].filter(Boolean);
+          } else if (voicing < 0.8) {
+            // Sus voicing (root, 4th, 5th)
+            chord = [notes[0], notes[3], notes[4]].filter(Boolean);
+          } else {
+            // Open voicing — spread across octaves
+            chord = [notes[0], notes[4], notes.length > 7 ? notes[7] : notes[2]].filter(Boolean);
+          }
           const names = chord.map((n: ScaleNote) => n.name);
-          synth.triggerAttackRelease(names, `${Math.max(2, Math.round(8 - density * 6))}m`, time);
-        }, interval);
-        layer.loop.start(0);
+          synth.triggerAttackRelease(names, `${bars}m`, time);
+        };
+        // Fire immediately, then loop
+        Tone.getTransport().scheduleOnce(padTick, "+0");
+        layer.loop = new Tone.Loop(padTick, interval);
+        layer.loop.start(`+${interval}`);
         break;
       }
 
       case "bass": {
-        const interval = `${Math.max(1, Math.round(4 - density * 3))}n`;
+        const beatDiv = Math.max(1, Math.round(4 - density * 3));
+        const interval = `${beatDiv}n`;
         let lastNote: ScaleNote | null = null;
-        layer.loop = new Tone.Loop((time) => {
+        let stepCount = 0;
+        const bassTick = (time: number) => {
           const synth = layer.synth as Tone.PolySynth;
-          // Prefer root and 5th for bass
-          const note = weightedScaleNote(root, scale, 1, 2, [5, 1, 2, 1, 3, 1, 1]);
-          if (!lastNote || Math.random() < 0.7) {
-            synth.triggerAttackRelease(note.name, `${Math.max(1, Math.round(4 - density * 3))}n`, time);
+          const note = weightedScaleNote(root, scale, 1, 2, [5, 1, 2, 1, 3]);
+          stepCount++;
+          // Occasional octave jump for movement
+          const useOctaveUp = Math.random() < 0.15 * energy;
+          const noteName = useOctaveUp
+            ? note.name.replace(/\d/, (d) => String(Number(d) + 1))
+            : note.name;
+          // Ghost notes (quieter) for groove
+          const isGhost = Math.random() < 0.2 * density;
+          if (isGhost) {
+            layer.gain.gain.setValueAtTime(layerState.volume * scene.energy * 0.4, time);
+            layer.gain.gain.setValueAtTime(layerState.volume * scene.energy, time + 0.1);
+          }
+          // Occasional rests
+          if (!lastNote || Math.random() < 0.75 + density * 0.2) {
+            const durations = [`${beatDiv}n`, "8n"];
+            const dur = stepCount % 4 === 0 && Math.random() < 0.5 ? durations[1] : durations[0];
+            synth.triggerAttackRelease(noteName, dur, time);
             lastNote = note;
           }
-        }, interval);
-        layer.loop.start(0);
+        };
+        Tone.getTransport().scheduleOnce(bassTick, "+0");
+        layer.loop = new Tone.Loop(bassTick, interval);
+        layer.loop.start(`+${interval}`);
         break;
       }
 
       case "melody": {
-        // Melody: phrases with rests, medium register
-        const baseInterval = Math.max(0.2, 1 - density * 0.7);
-        layer.loop = new Tone.Loop((time) => {
-          if (Math.random() > 0.3 + energy * 0.4) return; // rests
+        // Melody: phrases with rests and motif repetition
+        const baseInterval = Math.max(0.15, 0.8 - density * 0.6);
+        let phraseNotes: string[] = [];
+        let phraseIndex = 0;
+        const melodyTick = (time: number) => {
+          if (Math.random() > 0.35 + energy * 0.45) return; // rests
           const synth = layer.synth as Tone.PolySynth;
-          const note = weightedScaleNote(root, scale, 4, 5);
-          const durations = ["8n", "4n", "4n.", "2n"];
+          // Build short phrases (3-5 notes) and sometimes repeat them
+          if (phraseNotes.length === 0 || phraseIndex >= phraseNotes.length) {
+            const phraseLen = 3 + Math.floor(Math.random() * 3);
+            phraseNotes = [];
+            for (let i = 0; i < phraseLen; i++) {
+              phraseNotes.push(weightedScaleNote(root, scale, 4, 5).name);
+            }
+            phraseIndex = 0;
+          }
+          // 60% chance to follow the phrase, 40% to improvise
+          const noteName = Math.random() < 0.6
+            ? phraseNotes[phraseIndex]
+            : weightedScaleNote(root, scale, 4, 5).name;
+          phraseIndex++;
+          const durations = ["16n", "8n", "8n.", "4n", "4n.", "2n"];
           const dur = durations[Math.floor(Math.random() * durations.length)];
-          synth.triggerAttackRelease(note.name, dur, time);
-        }, baseInterval);
-        layer.loop.start(0);
+          synth.triggerAttackRelease(noteName, dur, time);
+        };
+        Tone.getTransport().scheduleOnce(melodyTick, "+0");
+        layer.loop = new Tone.Loop(melodyTick, baseInterval);
+        layer.loop.start(`+${baseInterval}`);
         break;
       }
 
       case "lead": {
-        // Lead: sparse, expressive, higher register
-        const interval = Math.max(0.5, 2 - density * 1.5);
-        layer.loop = new Tone.Loop((time) => {
-          if (Math.random() > 0.25 + energy * 0.3) return;
+        // Lead: expressive, with pitch bends and varying durations
+        const interval = Math.max(0.4, 1.8 - density * 1.4);
+        let lastLeadNote: string | null = null;
+        const leadTick = (time: number) => {
+          if (Math.random() > 0.3 + energy * 0.35) return;
           const synth = layer.synth as Tone.PolySynth;
           const note = weightedScaleNote(root, scale, 4, 6);
-          const dur = Math.random() > 0.5 ? "2n" : "4n.";
-          synth.triggerAttackRelease(note.name, dur, time);
-        }, interval);
-        layer.loop.start(0);
+          // Occasional double-stop (two notes)
+          if (Math.random() < 0.15 * energy && lastLeadNote) {
+            synth.triggerAttackRelease([note.name, lastLeadNote], "4n", time);
+          } else {
+            const durations = ["8n", "4n", "4n.", "2n", "2n."];
+            const dur = durations[Math.floor(Math.random() * durations.length)];
+            synth.triggerAttackRelease(note.name, dur, time);
+          }
+          lastLeadNote = note.name;
+        };
+        Tone.getTransport().scheduleOnce(leadTick, "+0");
+        layer.loop = new Tone.Loop(leadTick, interval);
+        layer.loop.start(`+${interval}`);
         break;
       }
 
       case "arp": {
-        // Arpeggiator: fast sequential notes through scale
-        const speed = Math.max(0.08, 0.3 - density * 0.22);
-        const notes = getScaleNotes(root, scale, 3, 5);
+        // Arpeggiator: multiple patterns with variation
+        const speed = Math.max(0.06, 0.25 - density * 0.19);
+        let notes = getScaleNotes(root, scale, 3, 5);
         let noteIndex = 0;
         let direction = 1;
-        layer.loop = new Tone.Loop((time) => {
-          if (Math.random() > 0.6 + energy * 0.35) return;
+        // Pick a pattern: 0=pingpong, 1=up, 2=down, 3=random
+        const pattern = Math.floor(Math.random() * 4);
+        const arpTick = (time: number) => {
+          if (Math.random() > 0.65 + energy * 0.3) return;
           const synth = layer.synth as Tone.PolySynth;
           const note = notes[noteIndex];
-          synth.triggerAttackRelease(note.name, "32n", time);
-          noteIndex += direction;
-          if (noteIndex >= notes.length - 1) direction = -1;
-          if (noteIndex <= 0) direction = 1;
-        }, speed);
-        layer.loop.start(0);
+          // Vary note length for texture
+          const dur = Math.random() < 0.2 ? "16n" : "32n";
+          synth.triggerAttackRelease(note.name, dur, time);
+          switch (pattern) {
+            case 0: // ping-pong
+              noteIndex += direction;
+              if (noteIndex >= notes.length - 1) direction = -1;
+              if (noteIndex <= 0) direction = 1;
+              break;
+            case 1: // up
+              noteIndex = (noteIndex + 1) % notes.length;
+              break;
+            case 2: // down
+              noteIndex = noteIndex <= 0 ? notes.length - 1 : noteIndex - 1;
+              break;
+            case 3: // random with tendency toward neighbors
+              noteIndex = Math.max(0, Math.min(notes.length - 1,
+                noteIndex + Math.floor(Math.random() * 5) - 2));
+              break;
+          }
+          // Occasional octave skip for sparkle
+          if (Math.random() < 0.08) {
+            noteIndex = Math.floor(Math.random() * notes.length);
+          }
+        };
+        Tone.getTransport().scheduleOnce(arpTick, "+0");
+        layer.loop = new Tone.Loop(arpTick, speed);
+        layer.loop.start(`+${speed}`);
         break;
       }
 
       case "percussion": {
-        // Percussion: rhythmic hits
-        const interval = `${Math.max(1, Math.round(4 - density * 3))}n`;
-        layer.loop = new Tone.Loop((time) => {
-          const kick = Math.random() < 0.6 + energy * 0.3;
-          if (kick) {
-            const synth = layer.synth as unknown as Tone.MembraneSynth;
-            const pitch = 30 + Math.random() * 30;
-            synth.triggerAttackRelease(pitch, "8n", time);
+        // Percussion: varied rhythmic hits with accents
+        const beatDiv = Math.max(1, Math.round(4 - density * 3));
+        const interval = `${beatDiv}n`;
+        let step = 0;
+        const percTick = (time: number) => {
+          step++;
+          const synth = layer.synth as unknown as Tone.MembraneSynth;
+          // Kick-like hits on downbeats
+          const isDownbeat = step % 4 === 1;
+          const hitChance = isDownbeat
+            ? 0.85 + energy * 0.15
+            : 0.3 + energy * 0.4;
+          if (Math.random() < hitChance) {
+            // Vary pitch: lower for downbeats, wider range for offbeats
+            const basePitch = isDownbeat ? 30 : 40;
+            const pitchRange = isDownbeat ? 15 : 40;
+            const pitch = basePitch + Math.random() * pitchRange;
+            // Accent on downbeats
+            const vel = isDownbeat ? 0.8 + Math.random() * 0.2 : 0.3 + Math.random() * 0.5;
+            synth.triggerAttackRelease(pitch, "8n", time, vel);
           }
-        }, interval);
-        layer.loop.start(0);
+        };
+        Tone.getTransport().scheduleOnce(percTick, "+0");
+        layer.loop = new Tone.Loop(percTick, interval);
+        layer.loop.start(`+${interval}`);
         break;
       }
     }
