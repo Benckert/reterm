@@ -15,6 +15,7 @@ export class AudioEngine {
   private analyser: Tone.Analyser | null = null;
   private masterGain: Tone.Gain | null = null;
   private isInitialized = false;
+  private lastScene: SceneState | null = null;
 
   async init(): Promise<void> {
     if (this.isInitialized) return;
@@ -121,7 +122,7 @@ export class AudioEngine {
       layer.loop = null;
     }
 
-    layer.gain.gain.value = layerState.volume * scene.energy;
+    layer.gain.gain.rampTo(layerState.volume * scene.energy, 0.05);
 
     const { root, scale } = scene;
     const density = layerState.density;
@@ -225,14 +226,26 @@ export class AudioEngine {
     }
   }
 
+  private needsReschedule(kind: LayerKind, scene: SceneState): boolean {
+    const prev = this.lastScene;
+    if (!prev) return true;
+    const prevLayer = prev.layers[kind];
+    const currLayer = scene.layers[kind];
+    return (
+      prev.root !== scene.root ||
+      prev.scale !== scene.scale ||
+      prevLayer.density !== currLayer.density ||
+      prevLayer.active !== currLayer.active
+    );
+  }
+
   applyScene(scene: SceneState): void {
     if (!this.isInitialized) return;
-
 
     Tone.getTransport().bpm.value = scene.bpm;
 
     if (this.masterGain) {
-      this.masterGain.gain.value = scene.masterVolume;
+      this.masterGain.gain.rampTo(scene.masterVolume, 0.05);
     }
 
     const allKinds: LayerKind[] = ["pad", "bass", "melody", "lead", "arp", "percussion"];
@@ -241,7 +254,15 @@ export class AudioEngine {
       const layerState = scene.layers[kind];
 
       if (layerState.active && scene.isPlaying) {
-        this.scheduleLayer(kind, scene);
+        if (this.needsReschedule(kind, scene)) {
+          this.scheduleLayer(kind, scene);
+        } else {
+          // Just update gain smoothly — no need to rebuild the loop
+          const existing = this.layers.get(kind);
+          if (existing) {
+            existing.gain.gain.rampTo(layerState.volume * scene.energy, 0.05);
+          }
+        }
       } else {
         // Stop and clean up inactive layers
         const existing = this.layers.get(kind);
@@ -250,13 +271,14 @@ export class AudioEngine {
           existing.loop = null;
         }
         if (existing) {
-          // Release all notes for PolySynth layers
           if ("releaseAll" in existing.synth) {
             (existing.synth as Tone.PolySynth).releaseAll();
           }
         }
       }
     }
+
+    this.lastScene = { ...scene, layers: { ...scene.layers } };
   }
 
   play(scene: SceneState): void {
@@ -267,6 +289,7 @@ export class AudioEngine {
 
   stop(): void {
     Tone.getTransport().stop();
+    this.lastScene = null;
     for (const [, layer] of this.layers) {
       if (layer.loop) {
         layer.loop.dispose();

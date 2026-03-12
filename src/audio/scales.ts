@@ -94,24 +94,35 @@ export function weightedScaleNote(
   weights?: number[],
 ): ScaleNote {
   const intervals = SCALE_INTERVALS[scale];
+  const degreeCount = intervals.length;
   const defaultWeights = intervals.map((_, i) =>
     i === 0 ? 3 : i === 2 ? 2 : i === 4 ? 2 : 1,
   );
-  const w = weights ?? defaultWeights;
+  // Trim weights to match the number of scale degrees
+  const w = (weights ?? defaultWeights).slice(0, degreeCount);
 
   const allNotes = getScaleNotes(root, scale, octaveLow, octaveHigh);
   const totalWeight = w.reduce((a, b) => a + b, 0);
   let r = Math.random() * totalWeight;
 
-  const degreeIndex = w.findIndex((weight) => {
+  let degreeIndex = w.findIndex((weight) => {
     r -= weight;
     return r <= 0;
   });
 
+  // Safety fallback
+  if (degreeIndex < 0 || degreeIndex >= degreeCount) {
+    degreeIndex = 0;
+  }
+
   // Filter notes that match this scale degree
   const matching = allNotes.filter(
-    (_, i) => i % intervals.length === degreeIndex,
+    (_, i) => i % degreeCount === degreeIndex,
   );
+
+  if (matching.length === 0) {
+    return allNotes[Math.floor(Math.random() * allNotes.length)];
+  }
 
   return matching[Math.floor(Math.random() * matching.length)];
 }
