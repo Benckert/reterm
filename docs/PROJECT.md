@@ -23,22 +23,36 @@ An interactive art piece — a web-based generative audio engine with reactive v
 - [x] Per-layer controls: active toggle, volume, density
 - [x] Effects chain per layer (reverb, delay, chorus, filters)
 - [x] Play/stop with real-time waveform visualization
-- [x] Responsive, minimal dark UI
 
-### Phase 2 — Visual Reactive System
+### Phase 1.5 — Interactive Playground UI ✅
 
-- [ ] Particle system driven by audio frequency/amplitude data
-- [ ] Multiple visualization modes (waveform, frequency bars, particles, geometry)
-- [ ] Per-layer visual representation (each layer has distinct visual character)
-- [ ] Color themes / palettes that shift with the music
-- [ ] WebGL for smooth, high-performance rendering
+- [x] Full-screen canvas playground replacing traditional UI controls
+- [x] Draggable glowing orbs — each layer is a physical object in the space
+- [x] Orb position maps to params: X = density, Y (inverted) = volume
+- [x] Click orbs to toggle active/inactive (with ripple feedback)
+- [x] Active orbs glow, pulse with audio amplitude, emit particles
+- [x] Connection lines between active orbs
+- [x] Background breathing glow reactive to audio
+- [x] Subtle grid dots, ambient waveform trace at bottom
+- [x] Minimal sidebar for scale/root/BPM/energy/play controls
+- [x] Click empty space to spawn decorative ripples
+
+### Phase 2 — Deeper Interactions
+
+- [ ] Touch/multi-touch support (mobile)
+- [ ] Scroll wheel for energy or zoom
+- [ ] Orb trails that leave temporary visual marks
+- [ ] Gravity/physics — orbs drift and attract/repel
+- [ ] "Zones" on the canvas that affect sound (e.g., reverb zone, distortion zone)
+- [ ] Per-layer visual identity (different shapes, particle styles)
+- [ ] WebGL upgrade for particle performance
 
 ### Phase 3 — Advanced Features
 
 - [ ] Scene presets (save/load full configurations)
 - [ ] Shareable URLs encoding scene state
 - [ ] More layer types (noise, texture, vocal chops)
-- [ ] Effects exposed as high-level controls (space, warmth, grit)
+- [ ] Effects exposed as spatial zones (drag orb into "reverb pool")
 - [ ] Export audio / record session
 - [ ] AI-assisted generation (optional, future)
 
@@ -94,25 +108,27 @@ Central state object controls the entire experience:
 | 2026-03-12 | 6 layers (pad/bass/melody/lead/arp/perc) | Covers full musical spectrum, each with distinct role.           |
 | 2026-03-12 | Weighted note selection                | Biases toward consonant intervals (root, 3rd, 5th) for pleasant output. |
 | 2026-03-12 | Energy as global multiplier            | Single knob to scale intensity across all layers simultaneously.    |
+| 2026-03-12 | Full-screen canvas playground          | User wants "magical musical forest" feel. Traditional UI killed the vibe. |
+| 2026-03-12 | Layers as draggable orbs               | Physical objects in space > sliders. Position = params. Tangible.   |
+| 2026-03-12 | Sidebar for "boring" controls          | Scale/BPM/play are configuration, not creative interaction.         |
+| 2026-03-12 | X=density, Y=volume mapping            | Intuitive spatial mapping: higher = louder, wider = busier.         |
 
 ## Project Structure
 
 ```
 src/
 ├── audio/
-│   ├── engine.ts        # Main audio engine — layer creation, scheduling, transport
-│   └── scales.ts        # Music theory — scales, note generation, weighted selection
+│   ├── engine.ts          # Audio engine — layer synths, scheduling, transport
+│   └── scales.ts          # Music theory — scales, notes, weighted selection
 ├── components/
-│   ├── LayerControl/    # Toggle + volume/density per layer
-│   ├── SceneControls/   # Root, scale, tempo, energy
-│   └── Visualizer/      # Waveform canvas visualization
+│   ├── Playground/        # Full-screen interactive canvas with draggable orbs
+│   └── Sidebar/           # Minimal sidebar: scale, root, BPM, energy, play
 ├── hooks/
 │   └── useAudioEngine.ts  # React hook wrapping the engine
 ├── types/
-│   └── audio.ts         # SceneState, LayerState, defaults
-├── App.tsx              # Main app — scene state, layout
-├── App.module.css
-├── index.css            # Global styles, range input styling
+│   └── audio.ts           # SceneState, LayerState, defaults
+├── App.tsx                # Wires sidebar + playground + audio engine
+├── index.css              # Global styles
 ├── main.tsx
 └── vite-env.d.ts
 ```
@@ -128,3 +144,10 @@ src/
 - Energy + density work together: energy is global intensity, density is per-layer busyness
 - Generative patterns use randomness with musical constraints (rests, weighted notes, directional arps)
 - Default scene starts with pad + bass active, others off — lets user build up layers
+- User wants it to feel like a "magical musical forest" / playground
+- Traditional UI (sliders, buttons) kills the vibe — interaction should BE the art
+- Each layer orb has a unique color for visual identity
+- Clicking empty canvas space spawns decorative ripples (satisfying, no-op)
+- Active orbs emit ambient particles and pulse with audio amplitude
+- Subtle connection lines between active orbs suggest they're "linked"
+- Waveform trace runs along the bottom edge — ambient, not central
