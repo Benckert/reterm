@@ -2,8 +2,8 @@ import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useAudioEngine } from "./hooks/useAudioEngine";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { Playground } from "./components/Playground/Playground";
-import type { OrbState } from "./components/Playground/Playground";
 import { DEFAULT_SCENE } from "./types/audio";
+import type { OrbState } from "./components/Playground/Playground";
 import type { SceneState, LayerKind } from "./types/audio";
 
 // Initial orb positions — spread across the canvas
@@ -19,7 +19,7 @@ const INITIAL_ORB_POSITIONS: Record<LayerKind, { x: number; y: number }> = {
 export default function App() {
   const [scene, setScene] = useState<SceneState>(DEFAULT_SCENE);
   const [orbPositions, setOrbPositions] = useState(INITIAL_ORB_POSITIONS);
-  const { isPlaying, play, stop, updateScene, getWaveformData } = useAudioEngine();
+  const { isPlaying, play, stop, updateScene } = useAudioEngine();
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
 
@@ -91,7 +91,6 @@ export default function App() {
       <Playground
         orbs={orbs}
         onOrbChange={handleOrbChange}
-        getWaveformData={getWaveformData}
         isPlaying={isPlaying}
       />
     </>

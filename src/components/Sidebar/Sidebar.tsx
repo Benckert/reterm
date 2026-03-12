@@ -95,6 +95,21 @@ export function Sidebar({ scene, isPlaying, onChange, onTogglePlay }: SidebarPro
         />
       </div>
 
+      <div className={styles.group}>
+        <span className={styles.label}>
+          volume <span className={styles.value}>{Math.round(scene.masterVolume * 100)}%</span>
+        </span>
+        <input
+          type="range"
+          className={styles.range}
+          min={0}
+          max={1}
+          step={0.01}
+          value={scene.masterVolume}
+          onChange={(e) => onChange({ ...scene, masterVolume: Number(e.target.value) })}
+        />
+      </div>
+
       <div className={styles.hint}>
         drag the orbs to shape the sound
       </div>

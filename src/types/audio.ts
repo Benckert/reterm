@@ -15,6 +15,7 @@ export interface SceneState {
   scale: ScaleName;
   bpm: number;
   energy: number; // 0-1 global energy/intensity
+  masterVolume: number; // 0-1 normalized master volume
   layers: Record<LayerKind, LayerState>;
   isPlaying: boolean;
 }
@@ -33,6 +34,7 @@ export const DEFAULT_SCENE: SceneState = {
   scale: "minorPentatonic",
   bpm: 85,
   energy: 0.5,
+  masterVolume: 0.8,
   layers: { ...LAYER_DEFAULTS },
   isPlaying: false,
 };

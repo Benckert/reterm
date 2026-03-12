@@ -13,12 +13,15 @@ type LayerSynth = {
 export class AudioEngine {
   private layers = new Map<LayerKind, LayerSynth>();
   private analyser: Tone.Analyser | null = null;
+  private masterGain: Tone.Gain | null = null;
   private isInitialized = false;
 
   async init(): Promise<void> {
     if (this.isInitialized) return;
     await Tone.start();
     this.analyser = new Tone.Analyser("waveform", 256);
+    this.masterGain = new Tone.Gain(0.8);
+    this.masterGain.chain(this.analyser, Tone.getDestination());
     this.isInitialized = true;
   }
 
@@ -30,7 +33,7 @@ export class AudioEngine {
       oscillator: { type: "sine4" as OscillatorType },
       envelope: { attack: 1.5, decay: 0.5, sustain: 0.8, release: 3 },
     });
-    synth.chain(chorus, reverb, gain, this.analyser!, Tone.getDestination());
+    synth.chain(chorus, reverb, gain, this.masterGain!);
     return { synth, gain, effects: [reverb, chorus], loop: null };
   }
 
@@ -41,7 +44,7 @@ export class AudioEngine {
       oscillator: { type: "triangle2" as OscillatorType },
       envelope: { attack: 0.05, decay: 0.3, sustain: 0.6, release: 0.8 },
     });
-    synth.chain(filter, gain, this.analyser!, Tone.getDestination());
+    synth.chain(filter, gain, this.masterGain!);
     return { synth, gain, effects: [filter], loop: null };
   }
 
@@ -53,7 +56,7 @@ export class AudioEngine {
       oscillator: { type: "triangle" },
       envelope: { attack: 0.02, decay: 0.3, sustain: 0.3, release: 0.8 },
     });
-    synth.chain(delay, reverb, gain, this.analyser!, Tone.getDestination());
+    synth.chain(delay, reverb, gain, this.masterGain!);
     return { synth, gain, effects: [delay, reverb], loop: null };
   }
 
@@ -65,7 +68,7 @@ export class AudioEngine {
       oscillator: { type: "sawtooth8" as OscillatorType },
       envelope: { attack: 0.1, decay: 0.4, sustain: 0.5, release: 1.2 },
     });
-    synth.chain(delay, reverb, gain, this.analyser!, Tone.getDestination());
+    synth.chain(delay, reverb, gain, this.masterGain!);
     return { synth, gain, effects: [delay, reverb], loop: null };
   }
 
@@ -77,7 +80,7 @@ export class AudioEngine {
       oscillator: { type: "square4" as OscillatorType },
       envelope: { attack: 0.005, decay: 0.15, sustain: 0.1, release: 0.3 },
     });
-    synth.chain(delay, reverb, gain, this.analyser!, Tone.getDestination());
+    synth.chain(delay, reverb, gain, this.masterGain!);
     return { synth, gain, effects: [delay, reverb], loop: null };
   }
 
@@ -89,7 +92,7 @@ export class AudioEngine {
       octaves: 4,
       envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.2 },
     });
-    synth.chain(reverb, gain, this.analyser!, Tone.getDestination());
+    synth.chain(reverb, gain, this.masterGain!);
     return { synth: synth as unknown as Tone.MembraneSynth, gain, effects: [reverb], loop: null };
   }
 
@@ -228,6 +231,10 @@ export class AudioEngine {
 
     Tone.getTransport().bpm.value = scene.bpm;
 
+    if (this.masterGain) {
+      this.masterGain.gain.value = scene.masterVolume;
+    }
+
     const allKinds: LayerKind[] = ["pad", "bass", "melody", "lead", "arp", "percussion"];
 
     for (const kind of allKinds) {
@@ -286,6 +293,8 @@ export class AudioEngine {
     this.layers.clear();
     this.analyser?.dispose();
     this.analyser = null;
+    this.masterGain?.dispose();
+    this.masterGain = null;
     this.isInitialized = false;
 
   }
