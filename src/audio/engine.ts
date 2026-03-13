@@ -1,5 +1,5 @@
 import * as Tone from "tone";
-import type { LayerKind, SceneState } from "../types/audio";
+import type { LayerKind, SceneState, AudioModulation } from "../types/audio";
 import { getScaleNotes, weightedScaleNote } from "./scales";
 import type { ScaleNote } from "./scales";
 
@@ -10,12 +10,24 @@ type LayerSynth = {
   loop: Tone.Loop | null;
 };
 
+const DEFAULT_MOD: AudioModulation = { densityMod: 0, volumeMod: 0, effectWet: 0, harmonicShift: 0.5 };
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+
 export class AudioEngine {
   private layers = new Map<LayerKind, LayerSynth>();
   private analyser: Tone.Analyser | null = null;
   private masterGain: Tone.Gain | null = null;
   private isInitialized = false;
   private lastScene: SceneState | null = null;
+  // Live modulation values — updated every ~50ms from field sampler, read by loop callbacks
+  private modulations = new Map<LayerKind, AudioModulation>();
+
+  getMod(kind: LayerKind): AudioModulation {
+    return this.modulations.get(kind) ?? DEFAULT_MOD;
+  }
 
   async init(): Promise<void> {
     if (this.isInitialized) return;
@@ -130,8 +142,12 @@ export class AudioEngine {
     layer.gain.gain.rampTo(layerState.volume * scene.energy, 0.05);
 
     const { root, scale } = scene;
-    const density = layerState.density;
-    const energy = scene.energy;
+    const baseDensity = layerState.density;
+    const baseEnergy = scene.energy;
+    // Callbacks read live modulation via closure over `kind` and `this`
+    const getMod = () => this.getMod(kind);
+    const density = baseDensity; // used for interval calculation (static)
+    const energy = baseEnergy;
 
     switch (kind) {
       case "pad": {
@@ -141,9 +157,10 @@ export class AudioEngine {
         const padTick = (time: number) => {
           const synth = layer.synth as Tone.PolySynth;
           synth.releaseAll(time);
+          const mod = getMod();
           const notes = getScaleNotes(root, scale, 3, 4);
-          // Vary chord voicing: triads, 7ths, sus, inversions
-          const voicing = Math.random();
+          // Voicing biased by harmonicShift — different wind phases favor different chords
+          const voicing = (Math.random() * 0.6 + mod.harmonicShift * 0.4) % 1;
           let chord: ScaleNote[];
           if (voicing < 0.4) {
             // Basic triad (root, 3rd, 5th)
@@ -175,10 +192,12 @@ export class AudioEngine {
         let stepCount = 0;
         const bassTick = (time: number) => {
           const synth = layer.synth as Tone.PolySynth;
+          const mod = getMod();
+          const liveEnergy = clamp(energy + mod.densityMod, 0, 1);
           const note = weightedScaleNote(root, scale, 1, 2, [5, 1, 2, 1, 3]);
           stepCount++;
-          // Occasional octave jump for movement
-          const useOctaveUp = Math.random() < 0.15 * energy;
+          // Occasional octave jump for movement — modulation increases probability
+          const useOctaveUp = Math.random() < 0.15 * liveEnergy;
           const noteName = useOctaveUp
             ? note.name.replace(/\d/, (d) => String(Number(d) + 1))
             : note.name;
@@ -208,7 +227,9 @@ export class AudioEngine {
         let phraseNotes: string[] = [];
         let phraseIndex = 0;
         const melodyTick = (time: number) => {
-          if (Math.random() > 0.35 + energy * 0.45) return; // rests
+          const mod = getMod();
+          const liveEnergy = clamp(energy + mod.densityMod, 0, 1);
+          if (Math.random() > 0.35 + liveEnergy * 0.45) return; // rests
           const synth = layer.synth as Tone.PolySynth;
           // Build short phrases (3-5 notes) and sometimes repeat them
           if (phraseNotes.length === 0 || phraseIndex >= phraseNotes.length) {
@@ -239,7 +260,9 @@ export class AudioEngine {
         const interval = Math.max(0.4, 1.8 - density * 1.4);
         let lastLeadNote: string | null = null;
         const leadTick = (time: number) => {
-          if (Math.random() > 0.3 + energy * 0.35) return;
+          const mod = getMod();
+          const liveEnergy = clamp(energy + mod.densityMod, 0, 1);
+          if (Math.random() > 0.3 + liveEnergy * 0.35) return;
           const synth = layer.synth as Tone.PolySynth;
           const note = weightedScaleNote(root, scale, 4, 6);
           // Occasional double-stop (two notes)
@@ -267,7 +290,9 @@ export class AudioEngine {
         // Pick a pattern: 0=pingpong, 1=up, 2=down, 3=random
         const pattern = Math.floor(Math.random() * 4);
         const arpTick = (time: number) => {
-          if (Math.random() > 0.65 + energy * 0.3) return;
+          const mod = getMod();
+          const liveEnergy = clamp(energy + mod.densityMod, 0, 1);
+          if (Math.random() > 0.65 + liveEnergy * 0.3) return;
           const synth = layer.synth as Tone.PolySynth;
           const note = notes[noteIndex];
           // Vary note length for texture
@@ -308,12 +333,14 @@ export class AudioEngine {
         let step = 0;
         const percTick = (time: number) => {
           step++;
+          const mod = getMod();
+          const liveEnergy = clamp(energy + mod.densityMod, 0, 1);
           const synth = layer.synth as unknown as Tone.MembraneSynth;
           // Kick-like hits on downbeats
           const isDownbeat = step % 4 === 1;
           const hitChance = isDownbeat
-            ? 0.85 + energy * 0.15
-            : 0.3 + energy * 0.4;
+            ? 0.85 + liveEnergy * 0.15
+            : 0.3 + liveEnergy * 0.4;
           if (Math.random() < hitChance) {
             // Vary pitch: lower for downbeats, wider range for offbeats
             const basePitch = isDownbeat ? 30 : 40;
@@ -360,13 +387,27 @@ export class AudioEngine {
       const layerState = scene.layers[kind];
 
       if (layerState.active && scene.isPlaying) {
+        // Store modulation for live reading by loop callbacks
+        if (layerState.modulation) {
+          this.modulations.set(kind, layerState.modulation);
+        }
         if (this.needsReschedule(kind, scene)) {
           this.scheduleLayer(kind, scene);
         } else {
-          // Just update gain smoothly — no need to rebuild the loop
+          // Smooth gain update with volume modulation
           const existing = this.layers.get(kind);
           if (existing) {
-            existing.gain.gain.rampTo(layerState.volume * scene.energy, 0.05);
+            const mod = this.getMod(kind);
+            const vol = clamp(layerState.volume * (1 + mod.volumeMod), 0, 1);
+            existing.gain.gain.rampTo(vol * scene.energy, 0.05);
+            // Modulate effect wet values
+            for (const effect of existing.effects) {
+              if ("wet" in effect && effect.wet instanceof Tone.Signal) {
+                const baseWet = (effect as { wet: Tone.Signal<"normalRange"> }).wet.value;
+                const target = clamp(baseWet + mod.effectWet * 0.3, 0, 1);
+                (effect as { wet: Tone.Signal<"normalRange"> }).wet.rampTo(target, 0.1);
+              }
+            }
           }
         }
       } else {

@@ -1,5 +1,9 @@
 import { useRef, useEffect, useCallback, useState } from "react";
-import type { LayerKind } from "../../types/audio";
+import type { LayerKind, AudioModulation } from "../../types/audio";
+import { WindField } from "../../visual/windField";
+import { GrassRenderer } from "../../visual/grassRenderer";
+import { sampleOrbAudio } from "../../visual/fieldSampler";
+import type { OrbPosition } from "../../visual/windField";
 import styles from "./Playground.module.css";
 
 export interface OrbState {
@@ -14,10 +18,20 @@ export interface OrbState {
 interface PlaygroundProps {
   orbs: OrbState[];
   onOrbChange: (kind: LayerKind, x: number, y: number, active: boolean) => void;
+  onOrbAdd: (x: number, y: number) => void;
+  onOrbRemove: (kind: LayerKind) => void;
+  onModulation: (modulations: Map<LayerKind, AudioModulation>) => void;
   isPlaying: boolean;
 }
 
-export function Playground({ orbs, onOrbChange, isPlaying }: PlaygroundProps) {
+export function Playground({
+  orbs,
+  onOrbChange,
+  onOrbAdd,
+  onOrbRemove,
+  onModulation,
+  isPlaying,
+}: PlaygroundProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
   const dragRef = useRef<{ kind: LayerKind; offsetX: number; offsetY: number } | null>(null);
@@ -25,7 +39,15 @@ export function Playground({ orbs, onOrbChange, isPlaying }: PlaygroundProps) {
   orbsRef.current = orbs;
   const isPlayingRef = useRef(isPlaying);
   isPlayingRef.current = isPlaying;
+  const onModulationRef = useRef(onModulation);
+  onModulationRef.current = onModulation;
   const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
+
+  // Visual systems — persistent across renders
+  const windFieldRef = useRef(new WindField());
+  const grassRendererRef = useRef(new GrassRenderer());
+  const lastTimeRef = useRef(performance.now());
+  const modFrameCount = useRef(0);
 
   const toPixel = useCallback(
     (nx: number, ny: number) => ({
@@ -43,7 +65,7 @@ export function Playground({ orbs, onOrbChange, isPlaying }: PlaygroundProps) {
     [canvasSize],
   );
 
-  // Drawing loop — kept minimal
+  // Main draw loop
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -62,76 +84,49 @@ export function Playground({ orbs, onOrbChange, isPlaying }: PlaygroundProps) {
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Background
-    ctx.fillStyle = "#060612";
-    ctx.fillRect(0, 0, w, h);
+    // Time delta
+    const now = performance.now();
+    const dt = Math.min(0.05, (now - lastTimeRef.current) / 1000);
+    lastTimeRef.current = now;
 
-    // Subtle grid dots
-    ctx.fillStyle = "rgba(255, 255, 255, 0.02)";
-    const gridSpacing = 40;
-    for (let gx = gridSpacing; gx < w; gx += gridSpacing) {
-      for (let gy = gridSpacing; gy < h; gy += gridSpacing) {
-        ctx.beginPath();
-        ctx.arc(gx, gy, 0.5, 0, Math.PI * 2);
-        ctx.fill();
+    // Update wind field
+    const windField = windFieldRef.current;
+    windField.update(dt);
+
+    // Build orb positions for the field
+    const orbPositions: (OrbPosition & { color: string; label: string })[] =
+      orbsRef.current.map((o) => ({
+        x: o.x,
+        y: o.y,
+        active: o.active,
+        color: o.color,
+        label: o.label,
+      }));
+
+    // Render grass field + particles + orbs
+    grassRendererRef.current.render(
+      ctx,
+      w,
+      h,
+      windField,
+      orbPositions,
+      windField.getTime(),
+    );
+
+    // Sample field for audio modulation — throttled to ~20fps
+    modFrameCount.current++;
+    if (modFrameCount.current % 3 === 0 && isPlayingRef.current) {
+      const mods = new Map<LayerKind, AudioModulation>();
+      for (const orb of orbsRef.current) {
+        if (!orb.active) continue;
+        const mod = sampleOrbAudio(windField, orb.x, orb.y, orbPositions);
+        mods.set(orb.kind, mod);
       }
-    }
-
-    // Connection lines between active orbs
-    const activeOrbs = orbsRef.current.filter((o) => o.active);
-    if (activeOrbs.length > 1) {
-      ctx.strokeStyle = "rgba(108, 99, 255, 0.06)";
-      ctx.lineWidth = 1;
-      for (let i = 0; i < activeOrbs.length; i++) {
-        for (let j = i + 1; j < activeOrbs.length; j++) {
-          const a = toPixel(activeOrbs[i].x, activeOrbs[i].y);
-          const b = toPixel(activeOrbs[j].x, activeOrbs[j].y);
-          ctx.beginPath();
-          ctx.moveTo(a.px, a.py);
-          ctx.lineTo(b.px, b.py);
-          ctx.stroke();
-        }
-      }
-    }
-
-    // Draw orbs
-    for (const orb of orbsRef.current) {
-      const { px, py } = toPixel(orb.x, orb.y);
-      const radius = orb.active ? 24 : 14;
-
-      // Simple glow for active orbs
-      if (orb.active) {
-        const glow = ctx.createRadialGradient(px, py, 0, px, py, radius * 2.5);
-        glow.addColorStop(0, orb.color + "20");
-        glow.addColorStop(1, "transparent");
-        ctx.fillStyle = glow;
-        ctx.beginPath();
-        ctx.arc(px, py, radius * 2.5, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Orb body
-      ctx.beginPath();
-      ctx.arc(px, py, radius, 0, Math.PI * 2);
-      ctx.fillStyle = orb.active ? orb.color + "cc" : orb.color + "22";
-      ctx.fill();
-
-      // Border
-      ctx.beginPath();
-      ctx.arc(px, py, radius, 0, Math.PI * 2);
-      ctx.strokeStyle = orb.active ? orb.color + "66" : orb.color + "15";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-
-      // Label
-      ctx.fillStyle = orb.active ? "#ccc" : "#333";
-      ctx.font = "10px Inter, system-ui, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(orb.label, px, py + radius + 14);
+      onModulationRef.current(mods);
     }
 
     animRef.current = requestAnimationFrame(draw);
-  }, [toPixel]);
+  }, []);
 
   // Resize observer
   useEffect(() => {
@@ -156,7 +151,7 @@ export function Playground({ orbs, onOrbChange, isPlaying }: PlaygroundProps) {
     return () => cancelAnimationFrame(animRef.current);
   }, [draw]);
 
-  // Interaction
+  // Interaction helpers
   const getCanvasPos = useCallback(
     (e: React.MouseEvent) => {
       const canvas = canvasRef.current;
@@ -232,12 +227,29 @@ export function Playground({ orbs, onOrbChange, isPlaying }: PlaygroundProps) {
         const pos = getCanvasPos(e);
         const orb = findOrbAt(pos.x, pos.y);
         if (orb) {
+          // Left click on orb = toggle active
           onOrbChange(orb.kind, orb.x, orb.y, !orb.active);
+        } else {
+          // Left click on empty space = add new orb
+          const { nx, ny } = toNorm(pos.x, pos.y);
+          onOrbAdd(nx, ny);
         }
       }
       dragRef.current = null;
     },
-    [getCanvasPos, findOrbAt, onOrbChange],
+    [getCanvasPos, findOrbAt, onOrbChange, onOrbAdd, toNorm],
+  );
+
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const pos = getCanvasPos(e);
+      const orb = findOrbAt(pos.x, pos.y);
+      if (orb) {
+        onOrbRemove(orb.kind);
+      }
+    },
+    [getCanvasPos, findOrbAt, onOrbRemove],
   );
 
   const handleMouseLeave = useCallback(() => {
@@ -252,6 +264,7 @@ export function Playground({ orbs, onOrbChange, isPlaying }: PlaygroundProps) {
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseLeave}
+      onContextMenu={handleContextMenu}
     />
   );
 }

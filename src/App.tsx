@@ -4,7 +4,10 @@ import { Sidebar } from "./components/Sidebar/Sidebar";
 import { Playground } from "./components/Playground/Playground";
 import { DEFAULT_SCENE } from "./types/audio";
 import type { OrbState } from "./components/Playground/Playground";
-import type { SceneState, LayerKind } from "./types/audio";
+import type { SceneState, LayerKind, AudioModulation } from "./types/audio";
+
+// Layers available to cycle through when adding orbs
+const ALL_LAYERS: LayerKind[] = ["pad", "bass", "melody", "lead", "arp", "percussion"];
 
 // Initial orb positions — spread across the canvas
 const INITIAL_ORB_POSITIONS: Record<LayerKind, { x: number; y: number }> = {
@@ -52,10 +55,7 @@ export default function App() {
 
   const handleOrbChange = useCallback(
     (kind: LayerKind, x: number, y: number, active: boolean) => {
-      // Update position
       setOrbPositions((prev) => ({ ...prev, [kind]: { x, y } }));
-
-      // Map position to audio params: x = density, y inverted = volume
       setScene((prev) => ({
         ...prev,
         layers: {
@@ -64,10 +64,80 @@ export default function App() {
             ...prev.layers[kind],
             active,
             density: x,
-            volume: 1 - y, // top = loud, bottom = quiet
+            volume: 1 - y,
           },
         },
       }));
+    },
+    [],
+  );
+
+  // Click empty space → activate next inactive layer at that position
+  const handleOrbAdd = useCallback(
+    (x: number, y: number) => {
+      setScene((prev) => {
+        // Find first inactive layer
+        const inactiveKind = ALL_LAYERS.find((k) => !prev.layers[k].active);
+        if (!inactiveKind) return prev; // all active already
+
+        setOrbPositions((p) => ({ ...p, [inactiveKind]: { x, y } }));
+        return {
+          ...prev,
+          layers: {
+            ...prev.layers,
+            [inactiveKind]: {
+              ...prev.layers[inactiveKind],
+              active: true,
+              density: x,
+              volume: 1 - y,
+            },
+          },
+        };
+      });
+    },
+    [],
+  );
+
+  // Right-click orb → deactivate it
+  const handleOrbRemove = useCallback(
+    (kind: LayerKind) => {
+      setScene((prev) => ({
+        ...prev,
+        layers: {
+          ...prev.layers,
+          [kind]: {
+            ...prev.layers[kind],
+            active: false,
+          },
+        },
+      }));
+    },
+    [],
+  );
+
+  // Field sampler modulation → merge into scene (throttled by Playground to ~20fps)
+  const handleModulation = useCallback(
+    (modulations: Map<LayerKind, AudioModulation>) => {
+      setScene((prev) => {
+        const newLayers = { ...prev.layers };
+        let changed = false;
+        for (const [kind, mod] of modulations) {
+          const existing = newLayers[kind].modulation;
+          // Only update if modulation changed meaningfully (avoid thrashing)
+          if (
+            !existing ||
+            Math.abs(existing.densityMod - mod.densityMod) > 0.02 ||
+            Math.abs(existing.volumeMod - mod.volumeMod) > 0.02 ||
+            Math.abs(existing.effectWet - mod.effectWet) > 0.02 ||
+            Math.abs(existing.harmonicShift - mod.harmonicShift) > 0.02
+          ) {
+            newLayers[kind] = { ...newLayers[kind], modulation: mod };
+            changed = true;
+          }
+        }
+        if (!changed) return prev;
+        return { ...prev, layers: newLayers };
+      });
     },
     [],
   );
@@ -91,6 +161,9 @@ export default function App() {
       <Playground
         orbs={orbs}
         onOrbChange={handleOrbChange}
+        onOrbAdd={handleOrbAdd}
+        onOrbRemove={handleOrbRemove}
+        onModulation={handleModulation}
         isPlaying={isPlaying}
       />
     </>

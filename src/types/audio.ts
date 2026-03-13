@@ -2,12 +2,20 @@ import type { ScaleName, RootNote } from "../audio/scales";
 
 export type LayerKind = "pad" | "lead" | "melody" | "bass" | "percussion" | "arp";
 
+export interface AudioModulation {
+  densityMod: number;    // -0.3 to 0.3
+  volumeMod: number;     // -0.2 to 0.2
+  effectWet: number;     // 0 to 0.5
+  harmonicShift: number; // 0 to 1
+}
+
 export interface LayerState {
   kind: LayerKind;
   active: boolean;
   volume: number; // 0-1 normalized
   density: number; // 0-1, how busy/frequent the layer is
   color: string; // UI accent color
+  modulation?: AudioModulation;
 }
 
 export interface SceneState {
