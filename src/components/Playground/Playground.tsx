@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from "react";
 import type { LayerKind, AudioModulation } from "../../types/audio";
 import { WindField } from "../../visual/windField";
-import { GrassRenderer } from "../../visual/grassRenderer";
+import { FieldRenderer } from "../../visual/fieldRenderer";
 import { sampleOrbAudio } from "../../visual/fieldSampler";
 import type { OrbPosition } from "../../visual/windField";
 import styles from "./Playground.module.css";
@@ -45,7 +45,7 @@ export function Playground({
 
   // Visual systems — persistent across renders
   const windFieldRef = useRef(new WindField());
-  const grassRendererRef = useRef(new GrassRenderer());
+  const fieldRendererRef = useRef(new FieldRenderer());
   const lastTimeRef = useRef(performance.now());
   const modFrameCount = useRef(0);
 
@@ -104,7 +104,7 @@ export function Playground({
       }));
 
     // Render grass field + particles + orbs
-    grassRendererRef.current.render(
+    fieldRendererRef.current.render(
       ctx,
       w,
       h,
